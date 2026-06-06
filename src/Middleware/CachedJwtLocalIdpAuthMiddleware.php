@@ -50,11 +50,11 @@ class CachedJwtLocalIdpAuthMiddleware extends LocalIdpAuthMiddleware
             $_SESSION['user_id'] = $request->getAttribute('oauth_user_id');
             $_SESSION['client_id'] = $clientId;
             $user = Utility::getAuthenticatedUser();
-            $this->redisCacheRepository->setUser(CachedValidatedUserEntity::builder()
-                ->userId($user->getUserId())
-                ->email($user->getEmail())
-                ->jwt($jwt)
-                ->build());
+            $this->redisCacheRepository->cacheValidatedUser(
+                $user->getUserId(),
+                $user->getEmail() ?? '',
+                $jwt
+            );
             return $handler->handle($request);
         }
     }

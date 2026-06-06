@@ -37,6 +37,7 @@ class UserClientAuthorizationRepository extends Repository implements EntityRepo
         $auth = UserClientAuthorization::builder()
             ->userIdentifier($userIdentifier)
             ->clientDbId($clientDbId)
+            ->createdAt(new \DateTimeImmutable())
             ->build();
 
         $this->persist($auth);

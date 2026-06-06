@@ -11,6 +11,7 @@ use Amtgard\ActiveRecordOrm\Interface\DataAccessPolicy;
 use Amtgard\ActiveRecordOrm\Repository\Database;
 use Amtgard\IdP\Middleware\ManagementMiddleware;
 use Amtgard\IdP\Models\OAuthServerConfiguration;
+use Amtgard\IdP\Utility\Security\CsrfTokenManager;
 use Amtgard\IdP\Persistence\Client\Repositories\UserLoginRepository;
 use Amtgard\IdP\Persistence\Client\Repositories\UserRepository;
 use Amtgard\IdP\Services\OrkService;
@@ -41,12 +42,15 @@ use League\OAuth2\Server\Repositories\RefreshTokenRepositoryInterface;
 use League\OAuth2\Server\Repositories\ScopeRepositoryInterface;
 use League\OAuth2\Server\Repositories\UserRepositoryInterface;
 use League\OAuth2\Server\ResourceServer;
+use Monolog\Handler\ErrorLogHandler;
 use Monolog\Handler\StreamHandler;
+use Monolog\Handler\WhatFailureGroupHandler;
 use Monolog\Logger;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Twig\Environment as TwigEnvironment;
 use Twig\Loader\FilesystemLoader;
+use Twig\TwigFunction;
 use Wohali\OAuth2\Client\Provider\Discord;
 
 Utility::configureIamClasses();
@@ -54,8 +58,18 @@ Utility::configureIamClasses();
 return [
         // Logger
     LoggerInterface::class => function () {
+        $logDir = __DIR__ . '/../logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+
+        $level = ($_ENV['APP_DEBUG'] ?? 'false') === 'true' ? Logger::DEBUG : Logger::ERROR;
         $logger = new Logger('app');
-        $logger->pushHandler(new StreamHandler(__DIR__ . '/../logs/app.log', Logger::DEBUG));
+        $logger->pushHandler(new WhatFailureGroupHandler([
+            new StreamHandler($logDir . '/app.log', $level),
+            new ErrorLogHandler(level: $level),
+        ]));
+
         return $logger;
     },
 
@@ -79,8 +93,8 @@ return [
         return UncachedPolicy::builder()->build();
     },
 
-    UserClientAuthorizationRepository::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(UserClientAuthorizationRepository::class);
+    UserClientAuthorizationRepository::class => function (EntityManager $em) {
+        return $em->getRepository(UserClientAuthorizationRepository::class);
     },
 
     EntityManager::class => function (ContainerInterface $container) {
@@ -93,44 +107,58 @@ return [
         return $em;
     },
 
-    UserRepository::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(UserRepository::class);
+    UserRepository::class => function (EntityManager $em) {
+        return $em->getRepository(UserRepository::class);
     },
 
-    UserRepositoryInterface::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(UserRepository::class);
+    UserRepositoryInterface::class => function (EntityManager $em) {
+        return $em->getRepository(UserRepository::class);
     },
 
-    UserLoginRepository::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(UserLoginRepository::class);
+    UserLoginRepository::class => function (EntityManager $em) {
+        return $em->getRepository(UserLoginRepository::class);
     },
 
-    UserOrkProfileRepository::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(UserOrkProfileRepository::class);
+    UserOrkProfileRepository::class => function (EntityManager $em) {
+        return $em->getRepository(UserOrkProfileRepository::class);
     },
 
-    ClientRepositoryInterface::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(ClientRepository::class);
+    ClientRepositoryInterface::class => function (EntityManager $em) {
+        return $em->getRepository(ClientRepository::class);
     },
 
-    ScopeRepositoryInterface::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(ScopeRepository::class);
+    ScopeRepositoryInterface::class => function (EntityManager $em) {
+        return $em->getRepository(ScopeRepository::class);
     },
 
-    AccessTokenRepositoryInterface::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(AccessTokenRepository::class);
+    AccessTokenRepositoryInterface::class => function (EntityManager $em) {
+        return $em->getRepository(AccessTokenRepository::class);
     },
 
-    AuthCodeRepositoryInterface::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(AuthCodeRepository::class);
+    AuthCodeRepositoryInterface::class => function (EntityManager $em) {
+        return $em->getRepository(AuthCodeRepository::class);
     },
 
     ManagementMiddleware::class => function (ContainerInterface $container) {
         return new ManagementMiddleware();
     },
 
-    RefreshTokenRepositoryInterface::class => function (ContainerInterface $container) {
-        return EntityManager::getManager()->getRepository(RefreshTokenRepository::class);
+    // Concrete ClientRepository (the League ClientRepositoryInterface entry
+    // returns the same object, but ConfidentialClientBasicAuthMiddleware needs
+    // the concrete type for validateClient()). Lets that middleware autowire.
+    ClientRepository::class => function (EntityManager $em) {
+        return $em->getRepository(ClientRepository::class);
+    },
+
+    // ConfidentialClientBasicAuthMiddleware, OrkLinkTokenService,
+    // RegistrationService and ConnectController are all resolved by autowiring.
+    // The repository-backed ones (the middleware, RegistrationService,
+    // ConnectController) take EntityManager as their first constructor parameter
+    // so the ORM singleton is configured before their repositories resolve;
+    // OrkLinkTokenService needs only Database + LoggerInterface.
+
+    RefreshTokenRepositoryInterface::class => function (EntityManager $em) {
+        return $em->getRepository(RefreshTokenRepository::class);
     },
 
     OAuthServerConfiguration::class => function (ContainerInterface $container) {
@@ -215,9 +243,10 @@ return [
     PubSubQueueHandle::class => function (ContainerInterface $container) {
         $queue = $container->get(SetQueue::class);
         $pubSub = $container->get(PubSubQueue::class);
-        $handle = $pubSub->addQueue($queue);
+        $queueName = $_ENV['REDIS_PUBLISHER_NAME'];
+        $pubSub->addQueue($queueName, $queue);
 
-        return PubSubQueueHandle::builder()->handle($handle)->build();
+        return PubSubQueueHandle::builder()->handle($queueName)->build();
     },
 
     SetQueue::class => function (ContainerInterface $container) {
@@ -239,12 +268,17 @@ return [
     },
 
         // Twig Environment
-    TwigEnvironment::class => function () {
+    TwigEnvironment::class => function (ContainerInterface $container) {
         $loader = new FilesystemLoader(__DIR__ . '/../templates');
-        return new TwigEnvironment($loader, [
+        $twig = new TwigEnvironment($loader, [
             'cache' => __DIR__ . '/cache/twig',
             'auto_reload' => true,
         ]);
+        // Expose the per-session CSRF token to every template as csrf_token().
+        // Backed by the shared CsrfTokenManager; forms render it as a hidden
+        // field (name="_csrf_token") and CsrfMiddleware validates it on POST.
+        $twig->addFunction(new TwigFunction('csrf_token', fn() => CsrfTokenManager::getOrCreate()));
+        return $twig;
     },
 
     AuthorizedClients::class => function (ContainerInterface $container) {

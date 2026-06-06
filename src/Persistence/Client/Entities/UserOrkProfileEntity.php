@@ -23,6 +23,9 @@ class UserOrkProfileEntity extends RepositoryEntity
     #[Field('user_id')]
     private int $userId;
 
+    #[Field('linked_via')]
+    private ?string $linkedVia;
+
     #[Field('ork_token')]
     private string $orkToken;
 

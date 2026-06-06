@@ -2,19 +2,21 @@
 
 declare(strict_types=1);
 
-error_reporting(E_ERROR | E_PARSE);
-ini_set('display_errors', '1');
-
-
 use DI\Bridge\Slim\Bridge;
 use DI\ContainerBuilder;
 use Slim\Factory\AppFactory;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-// Load environment variables
+// Load environment variables from the gitignored .env file. Keeping a single
+// loaded env file (never committed) avoids the risk of secrets leaking via a
+// checked-in dev env. safeLoad() doesn't error when the file is missing.
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
 $dotenv->safeLoad();
+
+$debug = ($_ENV['APP_DEBUG'] ?? 'false') === 'true';
+error_reporting($debug ? E_ALL : (E_ERROR | E_PARSE));
+ini_set('display_errors', $debug ? '1' : '0');
 
 // Set up dependency injection container
 $containerBuilder = new ContainerBuilder();

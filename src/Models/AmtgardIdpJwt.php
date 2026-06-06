@@ -36,7 +36,7 @@ class AmtgardIdpJwt
         ], $privateKey, 'RS256');
     }
 
-    public function validateJwtChallenge(JWT $jwt): bool {
+    public function validateJwtChallenge(string $jwt): bool {
         return $this->jwtChallenge->validateChallenge($jwt);
     }
 }

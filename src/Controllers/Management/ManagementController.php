@@ -5,6 +5,7 @@ namespace Amtgard\IdP\Controllers\Management;
 use Amtgard\ActiveRecordOrm\EntityManager;
 use Amtgard\IdP\Persistence\Server\Entities\Repository\Client;
 use Amtgard\IdP\Persistence\Server\Repositories\ClientRepository;
+use Amtgard\IdP\Services\OrkLinkTokenService;
 use League\OAuth2\Server\Repositories\AccessTokenRepositoryInterface;
 use League\OAuth2\Server\Repositories\AuthCodeRepositoryInterface;
 use League\OAuth2\Server\Repositories\ClientRepositoryInterface;
@@ -22,6 +23,7 @@ class ManagementController
     private RefreshTokenRepositoryInterface $refreshTokens;
     private AuthCodeRepositoryInterface $authCodes;
     private ClientRepository $clientRepository;
+    private OrkLinkTokenService $orkLinkTokenService;
 
     public function __construct(
         LoggerInterface $logger,
@@ -30,7 +32,8 @@ class ManagementController
         AccessTokenRepositoryInterface $accessTokenRepository,
         RefreshTokenRepositoryInterface $refreshTokenRepository,
         AuthCodeRepositoryInterface $authCodeRepository,
-        ClientRepositoryInterface $clientRepository
+        ClientRepositoryInterface $clientRepository,
+        OrkLinkTokenService $orkLinkTokenService
     ) {
         $this->logger = $logger;
         $this->twig = $twig;
@@ -38,6 +41,7 @@ class ManagementController
         $this->refreshTokens = $refreshTokenRepository;
         $this->authCodes = $authCodeRepository;
         $this->clientRepository = $clientRepository;
+        $this->orkLinkTokenService = $orkLinkTokenService;
     }
 
     public function cleanTokens(Request $request, Response $response): Response
@@ -49,6 +53,11 @@ class ManagementController
             $this->refreshTokens->deleteExpiredTokens();
             $this->refreshTokens->deleteOrphanedRefreshTokens();
             $this->authCodes->deleteExpiredAuthCodes();
+
+            // M1: clear consumed handoff jti rows older than the replay window.
+            // 1 hour generously exceeds the 15-minute exp; once a jti row is
+            // older than the token's max lifetime, replay is impossible anyway.
+            $this->orkLinkTokenService->cleanExpiredJti();
 
             $response->getBody()->write('Tokens cleaned successfully');
             return $response->withStatus(200);

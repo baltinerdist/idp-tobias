@@ -3,110 +3,400 @@ declare(strict_types=1);
 
 namespace Amtgard\IdP\Tests\Controllers;
 
+use Amtgard\ActiveRecordOrm\EntityManager;
 use Amtgard\IdP\Controllers\Client\AuthController;
+use Amtgard\IdP\Persistence\Client\Repositories\UserLoginRepository;
 use Amtgard\IdP\Persistence\Client\Repositories\UserRepository;
-use Doctrine\ORM\EntityManager;
-use Doctrine\ORM\EntityRepository;
+use Amtgard\IdP\Persistence\Client\Entities\UserEntity;
+use Amtgard\IdP\Persistence\Client\Entities\UserLoginEntity;
+use Amtgard\IdP\Models\AmtgardIdpJwt;
+use Amtgard\IdP\Utility\Exception\MalformedUserPolicyException;
 use League\OAuth2\Client\Provider\Facebook;
 use League\OAuth2\Client\Provider\Google;
-use League\OAuth2\Client\Token\AccessToken;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
+use Slim\Interfaces\RouteParserInterface;
 use Slim\Routing\RouteContext;
-use Slim\Routing\RouteParser;
+use Slim\Routing\RoutingResults;
+use Twig\Environment as TwigEnvironment;
+
+class TestUserEntity extends UserEntity
+{
+    private string $testUserId;
+    private string $testEmail;
+    private string $testFullName;
+
+    public function __construct(string $userId, string $email, string $fullName)
+    {
+        $this->testUserId = $userId;
+        $this->testEmail = $email;
+        $this->testFullName = $fullName;
+    }
+
+    public function getUserId(): string
+    {
+        return $this->testUserId;
+    }
+
+    public function getEmail(): string
+    {
+        return $this->testEmail;
+    }
+
+    public function getFullName(): string
+    {
+        return $this->testFullName;
+    }
+}
+
+class TestUserLoginEntity extends UserLoginEntity
+{
+    private string $testPassword;
+    private string $testAvatarUrl;
+    public $user;
+
+    public function __construct($user, string $password, string $avatarUrl)
+    {
+        $this->user = $user;
+        $this->testPassword = $password;
+        $this->testAvatarUrl = $avatarUrl;
+    }
+
+    public function getPassword(): ?string
+    {
+        return $this->testPassword;
+    }
+
+    public function getAvatarUrl(): ?string
+    {
+        return $this->testAvatarUrl;
+    }
+}
 
 class AuthControllerTest extends TestCase
 {
     private $entityManager;
+    private $userRepository;
+    private $userLoginRepository;
     private $logger;
     private $googleProvider;
     private $facebookProvider;
-    private $authController;
+    private $discordProvider;
+    private $amtgardIdpJwt;
+    private $twig;
     private $request;
     private $response;
     private $stream;
-    private $routeContext;
+    private $authController;
     private $routeParser;
-    private $userRepository;
+    private $routingResults;
 
     protected function setUp(): void
     {
-        // Create mocks for classes that can be mocked
+        @session_start();
+        $_SESSION = [];
+
         $this->entityManager = $this->createMock(EntityManager::class);
+        $this->userRepository = $this->createMock(UserRepository::class);
+        $this->userLoginRepository = $this->createMock(UserLoginRepository::class);
         $this->logger = $this->createMock(LoggerInterface::class);
         $this->googleProvider = $this->createMock(Google::class);
         $this->facebookProvider = $this->createMock(Facebook::class);
+        $this->discordProvider = $this->createMock(\Wohali\OAuth2\Client\Provider\Discord::class);
+        $this->amtgardIdpJwt = $this->createMock(AmtgardIdpJwt::class);
+        $this->twig = $this->createMock(TwigEnvironment::class);
+
         $this->request = $this->createMock(ServerRequestInterface::class);
         $this->response = $this->createMock(ResponseInterface::class);
         $this->stream = $this->createMock(StreamInterface::class);
-        $this->routeParser = $this->createMock(RouteParser::class);
-        $this->userRepository = $this->createMock(EntityRepository::class);
+        $this->routeParser = $this->createMock(RouteParserInterface::class);
+        $this->routingResults = $this->createMock(RoutingResults::class);
 
-        // Setup response with stream
         $this->response->method('getBody')->willReturn($this->stream);
         $this->response->method('withHeader')->willReturnSelf();
         $this->response->method('withStatus')->willReturnSelf();
 
-        // Instead of mocking RouteContext, create the necessary routing attributes
-        $routingResults = $this->createMock(\Slim\Routing\RoutingResults::class);
-        $routeParser = $this->createMock(\Slim\Routing\RouteParser::class);
-
-        // Set up the request attributes for routing
+        // Setup Request attributes for RouteContext::fromRequest
         $this->request->method('getAttribute')
-            ->willReturnCallback(function ($name) use ($routingResults, $routeParser) {
-                if ($name === RouteContext::ROUTING_RESULTS) {
-                    return $routingResults;
-                }
+            ->willReturnCallback(function (string $name) {
                 if ($name === RouteContext::ROUTE_PARSER) {
-                    return $routeParser;
+                    return $this->routeParser;
+                }
+                if ($name === RouteContext::ROUTING_RESULTS) {
+                    return $this->routingResults;
                 }
                 return null;
             });
 
-        // Create controller
         $this->authController = new AuthController(
             $this->entityManager,
+            $this->userRepository,
+            $this->userLoginRepository,
             $this->logger,
             $this->googleProvider,
-            $this->facebookProvider
+            $this->facebookProvider,
+            $this->discordProvider,
+            $this->amtgardIdpJwt,
+            $this->twig
         );
-
-        // Start session if not already started
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
     }
 
-    protected function tearDown(): void
+    public function testLoginForm(): void
     {
-        // Clean up session
-        $_SESSION = [];
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_destroy();
-        }
+        $this->request->expects($this->any())
+            ->method('getQueryParams')
+            ->willReturn(['redirect' => '/profile', 'jwtpublickey' => 'key']);
+
+        $this->twig->expects($this->once())
+            ->method('render')
+            ->with('login_form.twig', [
+                'redirect' => '/profile',
+                'jwtpublickey' => 'key'
+            ])
+            ->willReturn('login form HTML');
+
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with('login form HTML');
+
+        $result = $this->authController->loginForm($this->request, $this->response);
+        $this->assertSame($this->response, $result);
     }
 
-    public function testRedirectToFacebook(): void
+    public function testRegisterForm(): void
     {
-        // Setup
-        $authUrl = 'https://facebook.com/oauth/authorize?some=parameters';
-        $state = 'random_state_string';
+        $this->twig->expects($this->once())
+            ->method('render')
+            ->with('register_form.twig')
+            ->willReturn('register form HTML');
 
-        $this->facebookProvider->expects($this->once())
-            ->method('getAuthorizationUrl')
-            ->with(['scope' => ['email', 'public_profile']])
-            ->willReturn($authUrl);
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with('register form HTML');
 
-        $this->facebookProvider->expects($this->once())
-            ->method('getState')
-            ->willReturn($state);
+        $result = $this->authController->registerForm($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+    }
+
+    public function testLoginSuccess(): void
+    {
+        $email = 'test@example.com';
+        $password = 'password123';
+
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn(['email' => $email, 'password' => $password]);
+
+        $user = new TestUserEntity('user-1', $email, 'John Doe');
+        $login = new TestUserLoginEntity($user, password_hash($password, PASSWORD_BCRYPT), 'http://avatar.url');
+
+        $this->userRepository->expects($this->any())
+            ->method('getUserByEmail')
+            ->with($email)
+            ->willReturn($user);
+
+        $this->userLoginRepository->expects($this->once())
+            ->method('getLoginByUser')
+            ->with($user)
+            ->willReturn($login);
+
+        $this->routeParser->method('urlFor')->willReturn('/resources/profile');
+
+        $this->amtgardIdpJwt->expects($this->once())
+            ->method('buildAuthorizationJwt')
+            ->with($user)
+            ->willReturn('fake-jwt-token');
+
+        $result = $this->authController->login($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+        $this->assertEquals('user-1', $_SESSION['user_id']);
+        $this->assertEquals($email, $_SESSION['user_email']);
+    }
+
+    public function testLoginMalformedPolicy(): void
+    {
+        $email = 'test@example.com';
+        $password = 'password123';
+
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn(['email' => $email, 'password' => $password]);
+
+        $user = new TestUserEntity('user-1', $email, 'John Doe');
+        $login = new TestUserLoginEntity($user, password_hash($password, PASSWORD_BCRYPT), 'http://avatar.url');
+
+        $this->userRepository->expects($this->any())
+            ->method('getUserByEmail')
+            ->with($email)
+            ->willReturn($user);
+
+        $this->userLoginRepository->expects($this->once())
+            ->method('getLoginByUser')
+            ->with($user)
+            ->willReturn($login);
+
+        $this->amtgardIdpJwt->expects($this->once())
+            ->method('buildAuthorizationJwt')
+            ->with($user)
+            ->willThrowException(new MalformedUserPolicyException(new \InvalidArgumentException('bad orn')));
+
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with($this->stringContains(MalformedUserPolicyException::USER_MESSAGE));
+
+        $result = $this->authController->login($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+        $this->assertEmpty($_SESSION);
+    }
+
+    public function testLoginInvalidCredentials(): void
+    {
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn(['email' => 'wrong@example.com', 'password' => 'wrongpass']);
+
+        $this->userRepository->expects($this->any())
+            ->method('getUserByEmail')
+            ->willReturn(null);
+
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with($this->stringContains('Invalid email or password'));
+
+        $result = $this->authController->login($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+    }
+
+    public function testRegisterSuccess(): void
+    {
+        $email = 'new@example.com';
+        $password = 'password123';
+
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn([
+                'firstName' => 'Jane',
+                'lastName' => 'Doe',
+                'email' => $email,
+                'password' => $password,
+                'confirmPassword' => $password
+            ]);
+
+        $this->usersExistsMock(false);
+
+        $user = new TestUserEntity('user-2', $email, 'Jane Doe');
+        $login = new TestUserLoginEntity($user, password_hash($password, PASSWORD_BCRYPT), 'http://avatar.url');
+
+        $this->userRepository->expects($this->once())
+            ->method('createLocalUser')
+            ->with($email, 'Jane', 'Doe')
+            ->willReturn($user);
+
+        $this->userLoginRepository->expects($this->once())
+            ->method('createLocalLogin')
+            ->with($user, $password)
+            ->willReturn($login);
+
+        $this->routeParser->method('urlFor')->willReturn('/resources/profile');
+
+        $result = $this->authController->register($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+    }
+
+    public function testRegisterMissingFields(): void
+    {
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn([
+                'firstName' => '',
+                'lastName' => 'Doe',
+                'email' => 'jane@example.com',
+                'password' => 'pass'
+            ]);
+
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with($this->stringContains('All fields are required'));
+
+        $result = $this->authController->register($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+    }
+
+    public function testRegisterInvalidEmail(): void
+    {
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn([
+                'firstName' => 'Jane',
+                'lastName' => 'Doe',
+                'email' => 'invalid-email',
+                'password' => 'pass',
+                'confirmPassword' => 'pass'
+            ]);
+
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with($this->stringContains('Invalid email format'));
+
+        $result = $this->authController->register($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+    }
+
+    public function testRegisterMismatchedPasswords(): void
+    {
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn([
+                'firstName' => 'Jane',
+                'lastName' => 'Doe',
+                'email' => 'jane@example.com',
+                'password' => 'pass1',
+                'confirmPassword' => 'pass2'
+            ]);
+
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with($this->stringContains('Passwords do not match'));
+
+        $result = $this->authController->register($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+    }
+
+    public function testRegisterUserExists(): void
+    {
+        $email = 'existing@example.com';
+        $this->request->expects($this->once())
+            ->method('getParsedBody')
+            ->willReturn([
+                'firstName' => 'Jane',
+                'lastName' => 'Doe',
+                'email' => $email,
+                'password' => 'pass',
+                'confirmPassword' => 'pass'
+            ]);
+
+        $this->usersExistsMock(true);
+
+        $this->stream->expects($this->once())
+            ->method('write')
+            ->with($this->stringContains('Email already registered'));
+
+        $result = $this->authController->register($this->request, $this->response);
+        $this->assertSame($this->response, $result);
+    }
+
+    public function testLogout(): void
+    {
+        $_SESSION['user_id'] = 123;
+
+        $this->routeParser->method('urlFor')->with('home')->willReturn('/');
 
         $this->response->expects($this->once())
             ->method('withHeader')
-            ->with('Location', $authUrl)
+            ->with('Location', '/')
             ->willReturnSelf();
 
         $this->response->expects($this->once())
@@ -114,250 +404,15 @@ class AuthControllerTest extends TestCase
             ->with(302)
             ->willReturnSelf();
 
-        // Execute
-        $result = $this->authController->redirectToFacebook($this->request, $this->response);
-
-        // Verify
+        $result = $this->authController->logout($this->request, $this->response);
         $this->assertSame($this->response, $result);
-        $this->assertEquals($state, $_SESSION['oauth2state']);
+        $this->assertEmpty($_SESSION);
     }
 
-    public function testHandleFacebookCallbackWithError(): void
+    private function usersExistsMock(bool $exists): void
     {
-        // Setup
-        $queryParams = ['error' => 'access_denied'];
-
-        $this->request->expects($this->once())
-            ->method('getQueryParams')
-            ->willReturn($queryParams);
-
-        $this->stream->expects($this->once())
-            ->method('write')
-            ->with($this->stringContains('Facebook authentication failed: access_denied'));
-
-        // Execute
-        $result = $this->authController->handleFacebookCallback($this->request, $this->response);
-
-        // Verify
-        $this->assertSame($this->response, $result);
-    }
-
-    public function testHandleFacebookCallbackWithInvalidState(): void
-    {
-        // Setup
-        $_SESSION['oauth2state'] = 'correct_state';
-        $queryParams = ['state' => 'wrong_state', 'code' => 'authorization_code'];
-
-        $this->request->expects($this->once())
-            ->method('getQueryParams')
-            ->willReturn($queryParams);
-
-        $this->stream->expects($this->once())
-            ->method('write')
-            ->with($this->stringContains('Invalid state parameter'));
-
-        // Execute
-        $result = $this->authController->handleFacebookCallback($this->request, $this->response);
-
-        // Verify
-        $this->assertSame($this->response, $result);
-        $this->assertArrayNotHasKey('oauth2state', $_SESSION);
-    }
-
-    public function testHandleFacebookCallbackSuccess(): void
-    {
-        // Setup
-        $_SESSION['oauth2state'] = 'correct_state';
-        $queryParams = ['state' => 'correct_state', 'code' => 'authorization_code'];
-        $accessToken = $this->createMock(AccessToken::class);
-        $user = new UserRepository();
-        $user->setFirstName('John');
-        $user->setLastName('Doe');
-        $user->setEmail('john.doe@example.com');
-        $user->setFacebookId('12345');
-
-        $userData = [
-            'id' => '12345',
-            'first_name' => 'John',
-            'last_name' => 'Doe',
-            'email' => 'john.doe@example.com',
-            'picture' => [
-                'data' => [
-                    'url' => 'https://example.com/profile.jpg'
-                ]
-            ]
-        ];
-
-        $resourceOwner = new \League\OAuth2\Client\Provider\FacebookUser($userData);
-
-        $this->request->expects($this->once())
-            ->method('getQueryParams')
-            ->willReturn($queryParams);
-
-        $this->facebookProvider->expects($this->once())
-            ->method('getAccessToken')
-            ->with('authorization_code', ['code' => 'authorization_code'])
-            ->willReturn($accessToken);
-
-        $this->facebookProvider->expects($this->once())
-            ->method('getResourceOwner')
-            ->with($accessToken)
-            ->willReturn($resourceOwner);
-
-        $this->entityManager->expects($this->exactly(2))
-            ->method('getRepository')
-            ->with(UserRepository::class)
-            ->willReturn($this->userRepository);
-
-        $this->userRepository->expects($this->exactly(2))
-            ->method('findOneBy')
-            ->withConsecutive(
-                [['facebookId' => '12345']],
-                [['email' => 'john.doe@example.com']]
-            )
-            ->willReturnOnConsecutiveCalls(null, $user);
-
-        $this->entityManager->expects($this->once())
-            ->method('flush');
-
-        $this->request->expects($this->once())
-            ->method('getAttribute')
-            ->with(RouteContext::ROUTE_CONTEXT)
-            ->willReturn($this->routeContext);
-
-        $this->routeContext->expects($this->once())
-            ->method('getRouteParser')
-            ->willReturn($this->routeParser);
-
-        $this->routeParser->expects($this->once())
-            ->method('urlFor')
-            ->with('home')
-            ->willReturn('/');
-
-        // Execute
-        $result = $this->authController->handleFacebookCallback($this->request, $this->response);
-
-        // Verify
-        $this->assertSame($this->response, $result);
-        $this->assertEquals($user->getId(), $_SESSION['user_id']);
-        $this->assertEquals($user->getEmail(), $_SESSION['user_email']);
-        $this->assertEquals($user->getFullName(), $_SESSION['user_name']);
-    }
-
-    public function testHandleFacebookCallbackNewUser(): void
-    {
-        // Setup
-        $_SESSION['oauth2state'] = 'correct_state';
-        $queryParams = ['state' => 'correct_state', 'code' => 'authorization_code'];
-        $accessToken = $this->createMock(AccessToken::class);
-
-        $userData = [
-            'id' => '12345',
-            'first_name' => 'John',
-            'last_name' => 'Doe',
-            'email' => 'john.doe@example.com',
-            'picture' => [
-                'data' => [
-                    'url' => 'https://example.com/profile.jpg'
-                ]
-            ]
-        ];
-
-        $resourceOwner = new \League\OAuth2\Client\Provider\FacebookUser($userData);
-
-        $this->request->expects($this->once())
-            ->method('getQueryParams')
-            ->willReturn($queryParams);
-
-        $this->facebookProvider->expects($this->once())
-            ->method('getAccessToken')
-            ->with('authorization_code', ['code' => 'authorization_code'])
-            ->willReturn($accessToken);
-
-        $this->facebookProvider->expects($this->once())
-            ->method('getResourceOwner')
-            ->with($accessToken)
-            ->willReturn($resourceOwner);
-
-        $this->entityManager->expects($this->exactly(2))
-            ->method('getRepository')
-            ->with(UserRepository::class)
-            ->willReturn($this->userRepository);
-
-        $this->userRepository->expects($this->exactly(2))
-            ->method('findOneBy')
-            ->withConsecutive(
-                [['facebookId' => '12345']],
-                [['email' => 'john.doe@example.com']]
-            )
-            ->willReturnOnConsecutiveCalls(null, null);
-
-        $this->entityManager->expects($this->once())
-            ->method('persist')
-            ->with($this->callback(function ($user) {
-                return $user instanceof UserRepository
-                    && $user->getFirstName() === 'John'
-                    && $user->getLastName() === 'Doe'
-                    && $user->getEmail() === 'john.doe@example.com'
-                    && $user->getFacebookId() === '12345'
-                    && $user->getAvatarUrl() === 'https://example.com/profile.jpg';
-            }));
-
-        $this->entityManager->expects($this->once())
-            ->method('flush');
-
-        $this->request->expects($this->once())
-            ->method('getAttribute')
-            ->with(RouteContext::ROUTE_CONTEXT)
-            ->willReturn($this->routeContext);
-
-        $this->routeContext->expects($this->once())
-            ->method('getRouteParser')
-            ->willReturn($this->routeParser);
-
-        $this->routeParser->expects($this->once())
-            ->method('urlFor')
-            ->with('home')
-            ->willReturn('/');
-
-        // Execute
-        $result = $this->authController->handleFacebookCallback($this->request, $this->response);
-
-        // Verify
-        $this->assertSame($this->response, $result);
-        $this->assertArrayHasKey('user_id', $_SESSION);
-        $this->assertArrayHasKey('user_email', $_SESSION);
-        $this->assertArrayHasKey('user_name', $_SESSION);
-    }
-
-    public function testHandleFacebookCallbackException(): void
-    {
-        // Setup
-        $_SESSION['oauth2state'] = 'correct_state';
-        $queryParams = ['state' => 'correct_state', 'code' => 'authorization_code'];
-        $exception = new \Exception('API Error');
-
-        $this->request->expects($this->once())
-            ->method('getQueryParams')
-            ->willReturn($queryParams);
-
-        $this->facebookProvider->expects($this->once())
-            ->method('getAccessToken')
-            ->with('authorization_code', ['code' => 'authorization_code'])
-            ->willThrowException($exception);
-
-        $this->logger->expects($this->once())
-            ->method('error')
-            ->with('Facebook authentication error: API Error');
-
-        $this->stream->expects($this->once())
-            ->method('write')
-            ->with($this->stringContains('Authentication error: API Error'));
-
-        // Execute
-        $result = $this->authController->handleFacebookCallback($this->request, $this->response);
-
-        // Verify
-        $this->assertSame($this->response, $result);
+        $this->userRepository->expects($this->any())
+            ->method('userExists')
+            ->willReturn($exists);
     }
 }

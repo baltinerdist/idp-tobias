@@ -19,7 +19,7 @@ class Utility
         ];
 
     public static function userIsAuthenticated() {
-        return array_key_exists('user_id', $_SESSION);
+        return isset($_SESSION) && array_key_exists('user_id', $_SESSION);
     }
 
     public static function dateFrom(\DateInterval $dateInterval): \DateTimeInterface {

@@ -8,28 +8,28 @@
     "packages": [
         {
             "name": "amtgard/active-record-orm",
-            "version": "v1.5.10",
+            "version": "v1.5.11",
             "source": {
                 "type": "git",
                 "url": "https://github.com/amtgard/active-record-orm.git",
-                "reference": "7ed048d57bd0ffbe7f4bcd57ba1fc2b10772fb9d"
+                "reference": "cae5f7eef0c64cc77af6ecc5cb7268054730e4fe"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/amtgard/active-record-orm/zipball/7ed048d57bd0ffbe7f4bcd57ba1fc2b10772fb9d",
-                "reference": "7ed048d57bd0ffbe7f4bcd57ba1fc2b10772fb9d",
+                "url": "https://api.github.com/repos/amtgard/active-record-orm/zipball/cae5f7eef0c64cc77af6ecc5cb7268054730e4fe",
+                "reference": "cae5f7eef0c64cc77af6ecc5cb7268054730e4fe",
                 "shasum": ""
             },
             "require": {
                 "amtgard/builder-traits": "^2.1",
+                "amtgard/fuzzywuzzy": "^1.0.0",
                 "amtgard/phpunit-extensions": "^1.0",
                 "ext-json": "*",
                 "ext-pdo": "*",
                 "jedibc/optional": "^1.0",
                 "monolog/monolog": "^3.7",
                 "php": "^8.3",
-                "vlucas/phpdotenv": "^5.6",
-                "wyndow/fuzzywuzzy": "^0.6.0"
+                "vlucas/phpdotenv": "^5.6"
             },
             "require-dev": {
                 "ext-openssl": "*",
@@ -59,9 +59,44 @@
             "homepage": "https://github.com/amtgard/active-record-orm",
             "support": {
                 "issues": "https://github.com/amtgard/active-record-orm/issues",
-                "source": "https://github.com/amtgard/active-record-orm/tree/v1.5.10"
+                "source": "https://github.com/amtgard/active-record-orm/tree/v1.5.11"
             },
-            "time": "2026-02-26T15:19:07+00:00"
+            "time": "2026-06-01T15:15:17+00:00"
+        },
+        {
+            "name": "amtgard/amtgard-interfaces",
+            "version": "v1.0.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/amtgard/amtgard-interfaces.git",
+                "reference": "cfed672af5a29d9b649a93b484445d58ad3e86a4"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/amtgard/amtgard-interfaces/zipball/cfed672af5a29d9b649a93b484445d58ad3e86a4",
+                "reference": "cfed672af5a29d9b649a93b484445d58ad3e86a4",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.1"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Amtgard\\Interface\\": "./src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "Generic interfaces for use by Amtgard dependencies",
+            "homepage": "https://github.com/amtgard/amtgard-interfaces",
+            "support": {
+                "issues": "https://github.com/amtgard/amtgard-interfaces/issues",
+                "source": "https://github.com/amtgard/amtgard-interfaces/tree/v1.0.2"
+            },
+            "time": "2025-08-01T18:39:20+00:00"
         },
         {
             "name": "amtgard/builder-traits",
@@ -102,6 +137,49 @@
                 "source": "https://github.com/amtgard/builder-traits/tree/v2.2.2"
             },
             "time": "2025-12-24T19:23:37+00:00"
+        },
+        {
+            "name": "amtgard/fuzzywuzzy",
+            "version": "v1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/amtgard/fuzzywuzzy.git",
+                "reference": "3df7e256bd979bb34fa65f0a88a321c4baa85933"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/amtgard/fuzzywuzzy/zipball/3df7e256bd979bb34fa65f0a88a321c4baa85933",
+                "reference": "3df7e256bd979bb34fa65f0a88a321c4baa85933",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.1",
+                "phpspec/php-diff": "^1.1.3"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^10.0 || ^11.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "FuzzyWuzzy\\": "lib/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Michael Crumm",
+                    "email": "mike@crumm.net"
+                }
+            ],
+            "description": "Fuzzy string matching based on FuzzyWuzzy from Seatgeek",
+            "support": {
+                "source": "https://github.com/amtgard/fuzzywuzzy/tree/v1.0.0"
+            },
+            "time": "2026-06-01T14:10:39+00:00"
         },
         {
             "name": "amtgard/ork-iam",
@@ -189,26 +267,28 @@
         },
         {
             "name": "amtgard/redis-set-queue",
-            "version": "v1.0.1",
+            "version": "v1.1.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/amtgard/redis-set-queue.git",
-                "reference": "8255157b5d517c74b90238379aec1d166891dac5"
+                "reference": "86ac6f37cc93d5105c7eb1a92830943a977de399"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/amtgard/redis-set-queue/zipball/8255157b5d517c74b90238379aec1d166891dac5",
-                "reference": "8255157b5d517c74b90238379aec1d166891dac5",
+                "url": "https://api.github.com/repos/amtgard/redis-set-queue/zipball/86ac6f37cc93d5105c7eb1a92830943a977de399",
+                "reference": "86ac6f37cc93d5105c7eb1a92830943a977de399",
                 "shasum": ""
             },
             "require": {
+                "amtgard/amtgard-interfaces": "^1.0",
+                "amtgard/builder-traits": "^2.0",
                 "ext-redis": "*",
                 "jedibc/optional": "^1.0",
                 "php": ">=8.1"
             },
             "require-dev": {
                 "phake/phake": "^4.5",
-                "phpunit/phpunit": "^11.2"
+                "phpunit/phpunit": "^11.5.28"
             },
             "type": "library",
             "autoload": {
@@ -224,9 +304,9 @@
             "homepage": "https://github.com/amtgard/redis-set-queue",
             "support": {
                 "issues": "https://github.com/amtgard/redis-set-queue/issues",
-                "source": "https://github.com/amtgard/redis-set-queue/tree/v1.0.1"
+                "source": "https://github.com/amtgard/redis-set-queue/tree/v1.1.2"
             },
-            "time": "2025-05-06T14:43:12+00:00"
+            "time": "2026-06-05T17:26:30+00:00"
         },
         {
             "name": "brick/math",
@@ -5404,50 +5484,6 @@
                 "source": "https://github.com/wohali/oauth2-discord-new/tree/1.2.1"
             },
             "time": "2022-12-29T18:45:10+00:00"
-        },
-        {
-            "name": "wyndow/fuzzywuzzy",
-            "version": "v0.6.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/wyndow/fuzzywuzzy.git",
-                "reference": "6249a966a97ffc231d743ea5c4ccb4e6797582f5"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/wyndow/fuzzywuzzy/zipball/6249a966a97ffc231d743ea5c4ccb4e6797582f5",
-                "reference": "6249a966a97ffc231d743ea5c4ccb4e6797582f5",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=5.4",
-                "phpspec/php-diff": "^1.0"
-            },
-            "require-dev": {
-                "phpspec/phpspec": "^2.2"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "FuzzyWuzzy\\": "lib/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Michael Crumm",
-                    "email": "mike@crumm.net"
-                }
-            ],
-            "description": "Fuzzy string matching based on FuzzyWuzzy from Seatgeek",
-            "support": {
-                "issues": "https://github.com/wyndow/fuzzywuzzy/issues",
-                "source": "https://github.com/wyndow/fuzzywuzzy/tree/v0.6.0"
-            },
-            "time": "2017-04-25T21:20:44+00:00"
         },
         {
             "name": "zircote/swagger-php",

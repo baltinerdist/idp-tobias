@@ -29,6 +29,7 @@
 
             <form method="POST" action="">
                 <input type="hidden" name="callback" value="{{ callback }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="flex gap-4 justify-center">
                     <button type="submit" name="action" value="allow" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 px-4 rounded transition-colors duration-200">Allow</button>
                     <button type="submit" name="action" value="deny" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-2.5 px-4 rounded transition-colors duration-200">Deny</button>

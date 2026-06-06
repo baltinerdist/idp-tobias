@@ -25,5 +25,5 @@ class UserClientAuthorization extends RepositoryEntity
     protected int $clientDbId;
 
     #[Field('created_at')]
-    protected \DateTimeInterface $createdAt;
+    protected ?\DateTimeInterface $createdAt = null;
 }

@@ -2,23 +2,27 @@ FROM ubuntu:24.04
 
 RUN apt-get update
 RUN DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
-RUN apt-get update && apt-get install -y less gzip wget nginx nginx-extras zip unzip git nano mysql-client memcached redis
-RUN apt-get update && apt-get install --no-install-recommends -y php8.3
-RUN apt-get update && apt-get install -y php8.3-fpm php8.3-cli php8.3-common php8.3-mysql php8.3-mbstring php8.3-curl php8.3-xml php8.3-memcached php8.3-redis php8.3-gd
-RUN apt-get update && apt-get install php8.3-xdebug
+RUN apt-get update && apt-get install -y less gzip wget nginx nginx-extras zip unzip git nano mysql-client memcached redis software-properties-common ca-certificates lsb-release
+# composer.lock requires PHP 8.4 (Symfony 8.x). Pull from ondrej/php PPA.
+RUN add-apt-repository -y ppa:ondrej/php && apt-get update
+RUN apt-get install --no-install-recommends -y php8.4
+RUN apt-get install -y php8.4-fpm php8.4-cli php8.4-common php8.4-mysql php8.4-mbstring php8.4-curl php8.4-xml php8.4-memcached php8.4-redis php8.4-gd
+RUN apt-get install php8.4-xdebug
 
-RUN sed -i 's/;\s*clear_env = no/clear_env = no/g' /etc/php/8.3/fpm/pool.d/www.conf
-RUN echo "env[ENVIRONMENT] = DEV" >> /etc/php/8.3/fpm/pool.d/www.conf
-RUN sed -i 's/memory_limit = 128M/memory_limit = 32M/g' /etc/php/8.3/fpm/php.ini
-RUN sed -i 's/session.gc_maxlifetime = 1440/session.gc_maxlifetime = 2592000/g' /etc/php/8.3/fpm/php.ini
-RUN sed -i 's/session.cookie_lifetime = 0/session.cookie_lifetime = 2592000/g' /etc/php/8.3/fpm/php.ini
+RUN sed -i 's/;\s*clear_env = no/clear_env = no/g' /etc/php/8.4/fpm/pool.d/www.conf
+RUN echo "env[ENVIRONMENT] = DEV" >> /etc/php/8.4/fpm/pool.d/www.conf
+RUN sed -i 's/memory_limit = 128M/memory_limit = 32M/g' /etc/php/8.4/fpm/php.ini
+RUN sed -i 's/session.gc_maxlifetime = 1440/session.gc_maxlifetime = 2592000/g' /etc/php/8.4/fpm/php.ini
+RUN sed -i 's/session.cookie_lifetime = 0/session.cookie_lifetime = 2592000/g' /etc/php/8.4/fpm/php.ini
+# $_ENV needs the "E" in variables_order. Default Ubuntu PHP config omits it.
+RUN sed -i 's/^variables_order = .*/variables_order = "EGPCS"/' /etc/php/8.4/fpm/php.ini /etc/php/8.4/cli/php.ini
 
 RUN mkdir -p /var/www/idp.amtgard.com
 
 COPY nginx.idp.config /etc/nginx/sites-available/idp.amtgard.com
 RUN rm /etc/nginx/sites-enabled/*
 RUN ln -s /etc/nginx/sites-available/idp.amtgard.com /etc/nginx/sites-enabled/idp.amtgard.com
-COPY xdebug.dev.ini /etc/php/8.3/mods-available/xdebug.ini
+COPY xdebug.dev.ini /etc/php/8.4/mods-available/xdebug.ini
 COPY etc.memcached /etc/memcached.conf
 
 COPY --from=composer /usr/bin/composer /var/www/idp.amtgard.com/composer.phar

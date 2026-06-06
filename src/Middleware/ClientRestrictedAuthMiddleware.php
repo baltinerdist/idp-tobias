@@ -4,7 +4,6 @@ namespace Amtgard\IdP\Middleware;
 
 use Amtgard\ActiveRecordOrm\EntityManager;
 use Amtgard\IdP\Utility\AuthorizedClients;
-use Amtgard\IdP\Utility\CachedValidatedUserEntity;
 use Amtgard\IdP\Utility\Jwt;
 use Amtgard\IdP\Utility\Utility;
 use League\OAuth2\Server\ResourceServer;
@@ -21,17 +20,20 @@ class ClientRestrictedAuthMiddleware implements MiddlewareInterface
     protected ResourceServer $resourceServer;
     protected LoggerInterface $logger;
     protected AuthorizedClients $validClients;
+    private \Amtgard\IdP\Persistence\Server\Repositories\RedisCacheRepository $redisCacheRepository;
 
     public function __construct(
         EntityManager $em,
         LoggerInterface $logger,
         ResourceServer $resourceServer,
-        AuthorizedClients $validClients
+        AuthorizedClients $validClients,
+        \Amtgard\IdP\Persistence\Server\Repositories\RedisCacheRepository $redisCacheRepository
     )
     {
         $this->logger = $logger;
         $this->resourceServer = $resourceServer;
         $this->validClients = $validClients;
+        $this->redisCacheRepository = $redisCacheRepository;
     }
 
     /**
@@ -43,7 +45,7 @@ class ClientRestrictedAuthMiddleware implements MiddlewareInterface
             return $handler->handle($request);
         }
 
-        $jwt = Optional::ofNullable(Jwt::validateJwtSignature($request))->orElseThrow(new HttpUnauthorizedException($request, "Not authorized."));
+        $jwt = Optional::ofNullable(Jwt::validateJwtRequest($request))->orElseThrow(new HttpUnauthorizedException($request, "Not authorized."));
         $payload = Optional::ofNullable(value: Jwt::parseJwt($jwt))->orElseThrow(new HttpUnauthorizedException($request, "Not authorized."));
         $oauthUserId = Optional::ofNullable($payload['sub'])->orElseThrow(new HttpUnauthorizedException($request, "Not authorized."));
         $clientId = Optional::ofNullable($payload['aud'])->orElseThrow(new HttpUnauthorizedException($request, "Not authorized."));
@@ -61,10 +63,11 @@ class ClientRestrictedAuthMiddleware implements MiddlewareInterface
             $_SESSION['user_id'] = $request->getAttribute('oauth_user_id');
             $_SESSION['client_id'] = $clientId;
             $user = Utility::getAuthenticatedUser();
-            $this->redisCacheRepository->setUser(CachedValidatedUserEntity::builder()
-                ->userId($user->getUserId())
-                ->email($user->getEmail())
-                ->build());
+            $this->redisCacheRepository->cacheValidatedUser(
+                $user->getUserId(),
+                $user->getEmail() ?? '',
+                $jwt
+            );
             return $handler->handle($request);
         }
     }

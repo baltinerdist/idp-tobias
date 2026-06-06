@@ -8,16 +8,18 @@ use Amtgard\IdP\Models\AmtgardIdpJwt;
 use Amtgard\IdP\Persistence\Client\Entities\UserEntity;
 use Amtgard\IdP\Persistence\Client\Repositories\UserLoginRepository;
 use Amtgard\IdP\Persistence\Client\Repositories\UserOrkProfileRepository;
+use Amtgard\IdP\Persistence\Client\Repositories\UserRepository;
 use Amtgard\IdP\Persistence\Server\Repositories\RedisCacheRepository;
 use Amtgard\IdP\Persistence\Server\Repositories\UserClientAuthorizationRepository;
 use Amtgard\IdP\Services\OrkService;
 use Amtgard\IdP\Utility\PubSubQueueHandle;
 use Amtgard\IdP\Utility\UserAuthority;
-use Amtgard\IdP\Utility\UserRole;
+use Amtgard\IdP\Utility\Exception\MalformedUserPolicyException;
 use Amtgard\IdP\Utility\Utility;
 use Amtgard\SetQueue\PubSubQueue;
 use League\OAuth2\Server\Repositories\ClientRepositoryInterface;
 use OpenApi\Attributes as OA;
+use Optional\Optional;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
@@ -29,10 +31,12 @@ class ResourcesController
 
     protected LoggerInterface $logger;
     private ClientRepositoryInterface $clientRepository;
+    private Database $database;
     private PubSubQueue $redisPubSubQueue;
     private PubSubQueueHandle $pubSubQueueHandle;
     private OrkService $orkService;
     private UserOrkProfileRepository $orkProfileRepository;
+    private UserRepository $userRepository;
     private UserClientAuthorizationRepository $userClientAuthorizationRepository;
     private UserLoginRepository $userLoginRepository;
     private RedisCacheRepository $redisCacheRepository;
@@ -51,6 +55,7 @@ class ResourcesController
         Database $database,
         OrkService $orkService,
         UserOrkProfileRepository $orkProfileRepository,
+        UserRepository $userRepository,
         UserClientAuthorizationRepository $userClientAuthorizationRepository,
         UserLoginRepository $userLoginRepository,
         AmtgardIdpJwt $amtgardIdpJwt,
@@ -64,6 +69,7 @@ class ResourcesController
         $this->pubSubQueueHandle = $pubSubQueueHandle;
         $this->orkService = $orkService;
         $this->orkProfileRepository = $orkProfileRepository;
+        $this->userRepository = $userRepository;
         $this->userClientAuthorizationRepository = $userClientAuthorizationRepository;
         $this->userLoginRepository = $userLoginRepository;
         $this->redisCacheRepository = $redisCacheRepository;
@@ -99,9 +105,32 @@ class ResourcesController
             return $response->withStatus(401);
         }
 
-        $jwt = $this->amtgardIdpJwt->buildAuthorizationJwt($user);
+        try {
+            $jwt = $this->amtgardIdpJwt->buildAuthorizationJwt($user);
+        } catch (MalformedUserPolicyException $e) {
+            $this->logger->error('Malformed IDP access policy fetching JWT', [
+                'email' => $user->getEmail(),
+                'detail' => $e->getPrevious()?->getMessage(),
+            ]);
+            return $this->jsonPolicyError($response);
+        }
+
+        $this->redisCacheRepository->cacheValidatedUser(
+            $user->getUserId(),
+            $user->getEmail() ?? '',
+            $jwt
+        );
+
         $response->getBody()->write(json_encode(['jwt' => $jwt]));
         return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    private function jsonPolicyError(Response $response): Response
+    {
+        $response->getBody()->write(json_encode([
+            'error' => MalformedUserPolicyException::USER_MESSAGE,
+        ]));
+        return $response->withStatus(422)->withHeader('Content-Type', 'application/json');
     }
 
     #[OA\Get(
@@ -153,10 +182,20 @@ class ResourcesController
             return $response->withStatus(401);
         }
 
+        try {
+            $jwt = $this->amtgardIdpJwt->buildAuthorizationJwt($user);
+        } catch (MalformedUserPolicyException $e) {
+            $this->logger->error('Malformed IDP access policy fetching userinfo', [
+                'email' => $user->getEmail(),
+                'detail' => $e->getPrevious()?->getMessage(),
+            ]);
+            return $this->jsonPolicyError($response);
+        }
+
         $userData = [
             'id' => $user->getUserId(),
             'email' => $user->getEmail(),
-            'jwt' => $this->amtgardIdpJwt->buildAuthorizationJwt($user)
+            'jwt' => $jwt
         ];
 
         $orkProfile = $this->orkProfileRepository->findByUserId($user->getId());
@@ -240,11 +279,21 @@ class ResourcesController
 
         $orkProfile = null;
         $userLogins = [];
-        $isAdmin = $this->userAuthority->isAdmin($user);
+        $isAdmin = false;
+        $clients = [];
         if ($user) {
-            $clients = $this->clientRepository->findActiveClientsForUser($user->getId());
-            $orkProfile = $this->orkProfileRepository->findByUserId($user->getId());
-            $userLogins = $this->userLoginRepository->getAllLoginsForUser($user->getId());
+            try {
+                $isAdmin = $this->userAuthority->isAdmin($user);
+                $clients = $this->clientRepository->findActiveClientsForUser($user->getId());
+                $orkProfile = $this->orkProfileRepository->findByUserId($user->getId());
+                $userLogins = $this->userLoginRepository->getAllLoginsForUser($user->getId());
+            } catch (MalformedUserPolicyException $e) {
+                $this->logger->error('Malformed IDP access policy on profile', [
+                    'email' => $user->getEmail(),
+                    'detail' => $e->getPrevious()?->getMessage(),
+                ]);
+                $error = 'malformed_policy';
+            }
         }
 
         $response->getBody()->write($this->twig->render('profile.twig', [
@@ -321,6 +370,58 @@ class ResourcesController
         $this->orkProfileRepository->saveOrUpdateProfile($playerData, $parkData, $token, $user->getId());
 
         return $response->withHeader('Location', '/resources/profile?success=refreshed')->withStatus(302);
+    }
+
+    /**
+     * Server-to-server endpoint called by ORK to mirror a successful ORK-side
+     * link-write back into the IDP. Behind ConfidentialClientBasicAuthMiddleware
+     * so only the configured ORK confidential client can invoke it.
+     *
+     * Request:  { "idp_user_id": "<uuid string>", "mundane_id": 12345 }
+     * Response: 204 on success, 400/404/409 on failure (idempotent).
+     */
+    public function linkOrkProfile(Request $request, Response $response): Response
+    {
+        $body = (array) $request->getParsedBody();
+        $idpUserId = Optional::ofNullable($body['idp_user_id'] ?? null)
+            ->map(fn($v) => trim((string)$v))
+            ->filter(fn($v) => $v !== '')
+            ->orElse(null);
+        $mundaneId = Optional::ofNullable($body['mundane_id'] ?? null)
+            ->map(fn($v) => (int)$v)
+            ->filter(fn($v) => $v > 0)
+            ->orElse(null);
+
+        if ($idpUserId === null || $mundaneId === null) {
+            $response->getBody()->write(json_encode(['error' => 'idp_user_id (string) and mundane_id (positive int) are required']));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
+        }
+
+        $userOpt = Optional::ofNullable($this->userRepository->findUserByUserId($idpUserId));
+        if (!$userOpt->isPresent()) {
+            $this->logger->info('linkOrkProfile unknown idp_user_id', ['idp_user_id' => $idpUserId]);
+            $response->getBody()->write(json_encode(['error' => 'unknown idp_user_id']));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(404);
+        }
+        $user = $userOpt->get();
+
+        try {
+            $this->orkProfileRepository->linkExistingUserToMundane($user->getId(), $mundaneId, 'mirror');
+        } catch (\RuntimeException $e) {
+            if (str_contains($e->getMessage(), 'conflict')) {
+                $this->logger->warning('linkOrkProfile conflict', [
+                    'idp_user_id' => $idpUserId,
+                    'requested_mundane_id' => $mundaneId,
+                    'msg' => $e->getMessage(),
+                ]);
+                $response->getBody()->write(json_encode(['error' => 'idp_user_id already linked to a different mundane_id']));
+                return $response->withHeader('Content-Type', 'application/json')->withStatus(409);
+            }
+            throw $e;
+        }
+
+        $this->logger->info('linkOrkProfile success', ['idp_user_id' => $idpUserId, 'mundane_id' => $mundaneId]);
+        return $response->withStatus(204);
     }
 
     public function revokeAuthorization(Request $request, Response $response): Response

@@ -6,6 +6,9 @@ use Amtgard\ActiveRecordOrm\EntityManager;
 use Amtgard\IdP\Models\AmtgardIdpJwt;
 use Amtgard\IdP\Persistence\Client\Repositories\UserLoginRepository;
 use Amtgard\IdP\Persistence\Client\Repositories\UserRepository;
+use Amtgard\IdP\Utility\Security\OAuth2StateManager;
+use Amtgard\IdP\Utility\Security\OAuthCallbackValidator;
+use Amtgard\IdP\Utility\Security\ScriptAlertResponse;
 use League\OAuth2\Client\Provider\Facebook;
 use Optional\Optional;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -46,8 +49,7 @@ class FacebookAuthController extends BaseAuthController
             'scope' => ['email', 'public_profile'],
         ]);
 
-        // Store state in session for CSRF protection
-        $_SESSION['oauth2state'] = $this->facebookProvider->getState();
+        OAuth2StateManager::store($this->facebookProvider->getState());
 
         return $response
             ->withHeader('Location', $authUrl)
@@ -65,27 +67,10 @@ class FacebookAuthController extends BaseAuthController
     {
         $queryParams = $request->getQueryParams();
 
-        // Check for errors
-        if (isset($queryParams['error'])) {
-            $response->getBody()->write('
-                <script>
-                    alert("Facebook authentication failed: ' . htmlspecialchars($queryParams['error']) . '");
-                    window.location.href = "/auth/login";
-                </script>
-            ');
-            return $response;
-        }
+        $validationResult = OAuthCallbackValidator::validate($queryParams, 'Facebook');
 
-        // Validate state to prevent CSRF attacks
-        if (empty($queryParams['state']) || ($queryParams['state'] !== $_SESSION['oauth2state'])) {
-            unset($_SESSION['oauth2state']);
-
-            $response->getBody()->write('
-                <script>
-                    alert("Invalid state parameter");
-                    window.location.href = "/auth/login";
-                </script>
-            ');
+        if ($validationResult !== null) {
+            $response->getBody()->write($validationResult);
             return $response;
         }
 
@@ -122,12 +107,9 @@ class FacebookAuthController extends BaseAuthController
         } catch (\Exception $e) {
             $this->logger->error('Facebook authentication error: ' . $e->getMessage());
 
-            $response->getBody()->write('
-                <script>
-                    alert("Authentication error: ' . htmlspecialchars($e->getMessage()) . '");
-                    window.location.href = "/auth/login";
-                </script>
-            ');
+            $response->getBody()->write(
+                ScriptAlertResponse::alertAndRedirect($e->getMessage(), '/auth/login')
+            );
             return $response;
         }
     }

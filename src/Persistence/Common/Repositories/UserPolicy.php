@@ -12,6 +12,8 @@ use Amtgard\IAM\ClaimFactory;
 use Amtgard\IAM\OrkService;
 use Amtgard\IAM\ORN\OrnClassMap;
 use Amtgard\IdP\Models\Orn\IdpClaim;
+use Amtgard\IdP\Utility\Exception\MalformedUserPolicyException;
+use Throwable;
 
 class UserPolicy
 {
@@ -29,8 +31,12 @@ class UserPolicy
         $this->userClaims->find();
         OrnClassMap::$ORN_CLASS_MAP[OrkService::Idp->value] = IdpClaim::class;
         while ($this->userClaims->next()) {
-            $orn = $this->userClaims->service . $this->userClaims->provisos . $this->userClaims->resource;
-            $policyClaims[] = ClaimFactory::createOrn($orn);
+            try {
+                $orn = $this->userClaims->service . $this->userClaims->provisos . $this->userClaims->resource;
+                $policyClaims[] = ClaimFactory::createOrn($orn);
+            } catch (Throwable $e) {
+                throw new MalformedUserPolicyException($e);
+            }
         }
         return new Policy($policyClaims);
     }

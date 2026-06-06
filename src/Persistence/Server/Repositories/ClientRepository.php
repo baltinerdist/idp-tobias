@@ -63,6 +63,9 @@ class ClientRepository extends Repository implements EntityRepositoryInterface, 
     {
         /** @var Client $client */
         $client = $this->fetchBy('identifier', $clientIdentifier);
+        if (!$client) {
+            return null;
+        }
         $redirectUris = json_decode($client->getRedirectUri());
         if (!is_array($redirectUris)) {
             $redirectUris = [$client->getRedirectUri()];
@@ -86,7 +89,7 @@ class ClientRepository extends Repository implements EntityRepositoryInterface, 
 
         return Optional::ofNullable($client)
             ->map(function ($client) use ($clientSecret, $grantType, $self) {
-                $gate = $client->getClientEntity()->getClientSecret() == $clientSecret;
+                $gate = hash_equals((string) $client->getClientEntity()->getClientSecret(), (string) $clientSecret);
                 $gate &= $self->validateGrant($client, $grantType);
                 return $gate;
             })

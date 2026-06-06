@@ -1,0 +1,23 @@
+{% extends "base.twig" %}
+
+{% block title %}{{ title | default('OAuth Authorization Error') }}{% endblock %}
+
+{% block content %}
+    <div class="text-center py-8">
+        <div class="text-red-500 text-6xl mb-4">
+            <i class="fa-solid fa-circle-exclamation"></i>
+        </div>
+        <h1 class="text-3xl font-serif font-bold text-secondary mb-4">{{ title | default('OAuth Authorization Error') }}</h1>
+        
+        <div class="max-w-md mx-auto bg-red-50 border-l-4 border-red-500 p-4 rounded text-left mb-6 font-sans">
+            <p class="font-bold text-red-800">Description:</p>
+            <p class="text-red-700 mb-2">{{ message }}</p>
+            {% if hint %}
+                <p class="font-bold text-red-800 mt-2">Hint:</p>
+                <p class="text-red-600 text-sm">{{ hint }}</p>
+            {% endif %}
+        </div>
+
+        <a href="/" class="inline-block bg-primary hover:bg-primary-dark text-white py-2 px-5 rounded no-underline transition-colors duration-200">Return Home</a>
+    </div>
+{% endblock %}

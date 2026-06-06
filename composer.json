@@ -7,7 +7,7 @@
         "ext-redis": "*",
         "amtgard/active-record-orm": "^1.0",
         "amtgard/ork-iam": "^1.0",
-        "amtgard/redis-set-queue": "^1.0",
+        "amtgard/redis-set-queue": "^1.1",
         "firebase/php-jwt": "^7.0",
         "league/oauth2-client": "^2.6",
         "league/oauth2-facebook": "^2.2",
